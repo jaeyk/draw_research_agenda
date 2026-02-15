@@ -1,6 +1,7 @@
 Input: prefer keywords/tags
----------------------------
-For reliable parsing, prefer annotating your paragraph using the supported tags/keywords rather than relying on heuristics. Tags are explicit, unambiguous, and make the generated diagram predictable.
+Input format (preferred — use tags)
+----------------------------------
+For the most reliable and predictable results prefer annotating your paragraph using the supported tags/keywords. Tags are explicit, easy to read, and make the generated diagram predictable.
 
 Example (preferred — use these tags in your paragraph):
 
@@ -11,10 +12,7 @@ Example (preferred — use these tags in your paragraph):
 [relation:enables]Model development->Deployment[/relation:enables]
 ```
 
-In the demo (`tools/diagram_demo.html`) you can edit the paragraph directly — the parser will pick up the tags. If tags are omitted the tool will fall back to heuristics (comma-lists, or optional spaCy noun-chunk extraction), but using tags is recommended for accuracy.
-
 # draw_research_agenda
-Developer: Jae Yeon Kim and Codex (2026)
 
 Overview
 --------
