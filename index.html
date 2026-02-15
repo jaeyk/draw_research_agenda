@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Research Agenda → Diagram (demo)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:12px}
+    .cols{display:flex;gap:12px}
+    textarea{width:100%;height:220px}
+    .editor{width:100%;min-height:220px;padding:8px;border:1px solid #ccc;border-radius:6px;white-space:pre-wrap;overflow:auto;font-family:inherit}
+    .box{flex:1;min-width:0}
+    pre{background:#f6f8fa;padding:10px;overflow:auto}
+    header{display:flex;align-items:center;gap:12px}
+    button{padding:6px 10px}
+    label{font-weight:600}
+    .tag-theme{background:#fff3cd;padding:0 2px;border-radius:3px}
+    .tag-component{background:#d1ecf1;padding:0 2px;border-radius:3px}
+    .tag-subcomponent{background:#f8d7da;padding:0 2px;border-radius:3px}
+    .tag-relation{background:#e2e3e5;padding:0 2px;border-radius:3px}
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Research Agenda → Diagram (demo)</h2>
+    <div style="margin-left:auto">Try the examples and edit the input, then click Render.</div>
+  </header>
+
+  <div style="margin-top:8px">
+    <label>Input (tagged paragraph)</label>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <div style="flex:1">
+        <textarea id="input" style="display:none">[theme]Interactive Visualization[/theme]
+[component time=past]Data collection[/component] [component time=current]Model development[/component] [component time=future]Deployment[/component]
+[subcomponent of=Model development]Evaluation[/subcomponent] [relation:enables]Model development->Deployment[/relation:enables]</textarea>
+        <div id="inputEditor" class="editor" contenteditable="true" spellcheck="false"></div>
+      </div>
+        <div style="width:320px;display:flex;flex-direction:column;gap:6px">
+        <button id="render">Render</button>
+        <button id="example1">Load example 1</button>
+        <button id="example2">Load example 2</button>
+        <button id="clear">Clear</button>
+        <button id="downloadSvg">Download SVG</button>
+        <button id="downloadPng">Download PNG</button>
+      </div>
+    </div>
+  </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+      <label for="orientation">Orientation:</label>
+      <select id="orientation">
+        <option value="vertical">Vertical (top-down)</option>
+        <option value="horizontal">Horizontal (left-right)</option>
+      </select>
+    </div>
+
+  <div class="cols" style="margin-top:12px">
+    <div class="box">
+      <label>Generated Mermaid</label>
+      <pre id="mermaidOut">(rendered here)</pre>
+    </div>
+    <div class="box">
+      <label>Rendered Diagram</label>
+      <div id="diagram"></div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: false, theme: 'base' });
+
+    let lastModel = null;
+    const textarea = document.getElementById('input');
+    const editor = document.getElementById('inputEditor');
+
+    function escapeHtml(s){
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function highlightTags(raw){
+      let out = escapeHtml(raw);
+      // highlight specific tags (wrap the bracketed tags)
+      out = out.replace(/\[\/?theme(?:[^\]]*)\]/gi, m => `<span class="tag-theme">${m}</span>`);
+      out = out.replace(/\[\/?component(?:[^\]]*)\]/gi, m => `<span class="tag-component">${m}</span>`);
+      out = out.replace(/\[\/?subcomponent(?:[^\]]*)\]/gi, m => `<span class="tag-subcomponent">${m}</span>`);
+      out = out.replace(/\[\/?relation(?::[^\]]*)?\]/gi, m => `<span class="tag-relation">${m}</span>`);
+      // preserve newlines
+      out = out.replace(/\n/g, '<br>');
+      return out;
+    }
+
+    function updateEditorFromTextarea(){
+      const raw = textarea.value || '';
+      editor.innerHTML = highlightTags(raw) || '<br>';
+    }
+
+    function updateTextareaFromEditor(){
+      // use innerText to get plain text without tags
+      const raw = editor.innerText.replace(/\u00A0/g,' ');
+      textarea.value = raw;
+      // re-highlight
+      editor.innerHTML = highlightTags(raw) || '<br>';
+      // move caret to end
+      setTimeout(()=>{ setCaretToEnd(editor); }, 0);
+    }
+
+    function setCaretToEnd(el){
+      el.focus();
+      if(typeof window.getSelection != "undefined" && typeof document.createRange != "undefined"){
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    // initialize editor from hidden textarea
+    updateEditorFromTextarea();
+
+    // sync on input (debounced simple)
+    let inputTimeout = null;
+    editor.addEventListener('input', ()=>{
+      if(inputTimeout) clearTimeout(inputTimeout);
+      inputTimeout = setTimeout(()=>{ updateTextareaFromEditor(); }, 150);
+    });
+
+    function parse(text){
+      const data = { theme: null, components: [], relations: [] };
+
+      // theme tag
+      const themeMatch = text.match(/\[theme(?:\s+[^\]]*)?\]([\s\S]*?)\[\/theme\]/i);
+      if(themeMatch) data.theme = themeMatch[1].trim();
+
+      // component tags with optional time attr
+      const compRe = /\[component(?:\s+time=(past|current|future))?\]([\s\S]*?)\[\/component\]/ig;
+      let m;
+      while((m = compRe.exec(text))){
+        data.components.push({name: m[2].trim(), time: (m[1]||'current').toLowerCase()});
+      }
+
+      // subcomponent tags: [subcomponent of=Parent]Child[/subcomponent]
+      const subRe = /\[subcomponent(?:\s+of=([^\]]+))?\]([\s\S]*?)\[\/subcomponent\]/ig;
+      while((m = subRe.exec(text))){
+        data.components.push({name: m[2].trim(), time: 'current', parent: (m[1]||null)});
+      }
+
+      // relations: [relation:TYPE]A->B[/relation:TYPE]
+      const relRe = /\[relation:([^\]]+)\]([\s\S]*?)\[\/relation:[^\]]+\]/ig;
+      while((m = relRe.exec(text))){
+        const type = m[1];
+        const pair = m[2].trim();
+        const arrow = pair.includes('->') ? '->' : (pair.includes('→') ? '→' : '->');
+        const parts = pair.split(/->|→/).map(s=>s.trim());
+        if(parts.length===2) data.relations.push({from: parts[0], to: parts[1], type});
+      }
+
+      // fallback heuristics: if no theme found, use first sentence
+      if(!data.theme){
+        const firstSentence = text.split(/\.|\n/)[0].trim();
+        if(firstSentence) data.theme = firstSentence;
+      }
+
+      // fallback components: look for 'components:' or comma list
+      if(data.components.length===0){
+        const compList = text.match(/components?:\s*([^\n]*)/i);
+        if(compList){
+          const list = compList[1].split(/[;,] */).map(s=>s.trim()).filter(Boolean);
+          for(const it of list) data.components.push({name: it, time: 'current'});
+        } else {
+          // try comma-splitting remainder after theme
+          const remainder = text.replace(/\[.*?\]/g,'').replace(data.theme,'');
+          const parts = remainder.split(/[;,] /).map(s=>s.trim()).filter(Boolean);
+          for(const p of parts) if(p.length<40) data.components.push({name:p, time:'current'});
+        }
+      }
+
+      return data;
+    }
+
+    function toMermaid(model, orientation='vertical'){
+      const dir = (orientation === 'horizontal') ? 'LR' : 'TD';
+      const lines = ['graph ' + dir];
+      const lanes = {past:[], current:[], future:[]};
+      const idFor = (n)=>'N'+n.replace(/[^a-z0-9]+/ig,'_');
+
+      // create nodes with ids
+      const nodes = {};
+      model.components.forEach(c=>{
+        const id = idFor(c.name);
+        nodes[c.name] = id;
+        lanes[c.time||'current'].push(`${id}[${c.name}]`);
+      });
+
+      // theme root
+      const rootId = idFor(model.theme||'Theme');
+      lines.push(`${rootId}[${model.theme||'Theme'}]`);
+
+      // lanes as subgraphs
+      if(lanes.past.length) { lines.push('  subgraph Past'); lanes.past.forEach(l=>lines.push('    '+l)); lines.push('  end'); }
+      if(lanes.current.length) { lines.push('  subgraph Current'); lanes.current.forEach(l=>lines.push('    '+l)); lines.push('  end'); }
+      if(lanes.future.length) { lines.push('  subgraph Future'); lanes.future.forEach(l=>lines.push('    '+l)); lines.push('  end'); }
+
+      // edges theme -> components
+      for(const c of model.components){
+        const id = nodes[c.name];
+        if(id) lines.push(`${rootId} --> ${id}`);
+        if(c.parent){
+          const pid = nodes[c.parent] || idFor(c.parent);
+          lines.push(`${pid} --> ${id}`);
+        }
+      }
+
+      // relations
+      for(const r of model.relations){
+        const from = nodes[r.from] || idFor(r.from);
+        const to = nodes[r.to] || idFor(r.to);
+        lines.push(`${from} -->|${r.type}| ${to}`);
+      }
+
+      return lines.join('\n');
+    }
+
+    function render(){
+      const input = document.getElementById('input').value;
+      const model = parse(input);
+      lastModel = model;
+      const mermaid = toMermaid(model, document.getElementById('orientation').value);
+      document.getElementById('mermaidOut').textContent = mermaid;
+
+      // render with mermaid
+      const diagram = document.getElementById('diagram');
+      diagram.innerHTML = '<div class="mermaid">'+mermaid+'</div>';
+      mermaid.parse && mermaid.init(undefined, diagram);
+    }
+
+    function getRenderedSvg(){
+      const diagram = document.getElementById('diagram');
+      const svg = diagram.querySelector('svg');
+      return svg || null;
+    }
+
+    function downloadSVG(){
+      const svg = getRenderedSvg();
+      if(!svg){ alert('No SVG found — render first.'); return; }
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      if(!source.match(/^<svg[^>]+xmlns="http:\/\/www.w3.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      if(!source.match(/xmlns:xlink/)){
+        source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+      }
+      const blob = new Blob([source], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const name = (lastModel && lastModel.theme) ? lastModel.theme.replace(/\s+/g,'_') : 'diagram';
+      a.download = name + '.svg';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadPNG(){
+      const svg = getRenderedSvg();
+      if(!svg){ alert('No SVG found — render first.'); return; }
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      if(!source.match(/^<svg[^>]+xmlns="http:\/\/www.w3.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      const svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+      const img = new Image();
+      img.onload = function(){
+        const bbox = svg.getBBox ? svg.getBBox() : {width: svg.clientWidth || 800, height: svg.clientHeight || 600};
+        const width = Math.ceil(bbox.width || img.width);
+        const height = Math.ceil(bbox.height || img.height);
+        const scale = window.devicePixelRatio || 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        ctx.clearRect(0,0,width,height);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(function(blob){
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const name = (lastModel && lastModel.theme) ? lastModel.theme.replace(/\s+/g,'_') : 'diagram';
+          a.download = name + '.png';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        }, 'image/png');
+      };
+      img.onerror = function(){ alert('Failed to load SVG image for PNG export.'); };
+      img.src = svg64;
+    }
+
+    document.getElementById('render').addEventListener('click', render);
+    document.getElementById('example1').addEventListener('click', ()=>{
+      const txt = '[theme]Interactive Visualization[/theme]\n[component time=past]Data collection[/component] [component time=current]Model development[/component] [component time=future]Deployment[/component]\n[subcomponent of=Model development]Evaluation[/subcomponent] [relation:enables]Model development->Deployment[/relation:enables]';
+      textarea.value = txt;
+      updateEditorFromTextarea();
+      render();
+    });
+    document.getElementById('example2').addEventListener('click', ()=>{
+      const txt = '[theme]Fairness in ML[/theme]\n[component time=past]Dataset audits[/component] [component time=current]Algorithmic testing[/component] [component time=future]Policy integration[/component]\n[relation:informs]Dataset audits->Algorithmic testing[/relation:informs]';
+      textarea.value = txt;
+      updateEditorFromTextarea();
+      render();
+    });
+    document.getElementById('clear').addEventListener('click', ()=>{textarea.value=''; updateEditorFromTextarea(); document.getElementById('mermaidOut').textContent=''; document.getElementById('diagram').innerHTML='';});
+
+    // initial render
+    render();
+  </script>
+</body>
+</html>
