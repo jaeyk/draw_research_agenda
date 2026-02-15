@@ -67,3 +67,8 @@ python -m unittest tools/tests/test_agenda.py
 ## GitHub Pages
 
 The Pages workflow publishes `tools/diagram_demo.html` as a static site. Static Pages cannot run server-side rendering (`mmdc`/`dot`) on demand.
+
+## Live Demo URL
+
+- Project Pages URL format: `https://<username>.github.io/draw_research_agenda/`
+- Example: `https://jaeyeonkim.github.io/draw_research_agenda/`
