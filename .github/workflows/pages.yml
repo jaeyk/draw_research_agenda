@@ -21,10 +21,9 @@ jobs:
           mkdir -p site
           cp tools/diagram_demo.html site/index.html
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v1
+      - name: Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: site
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
